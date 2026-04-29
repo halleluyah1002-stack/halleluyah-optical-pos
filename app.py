@@ -1,294 +1,566 @@
 import os
-from datetime import datetime, date
-from functools import wraps
-from decimal import Decimal
-from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, send_file
+from datetime import datetime
+from flask import Flask, request, redirect, url_for, session, render_template_string
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'change-this-secret-key')
-db_url = os.getenv('DATABASE_URL', 'sqlite:///halleluyah_pos.db')
-if db_url.startswith('postgres://'):
-    db_url = db_url.replace('postgres://', 'postgresql://', 1)
-app.config['SQLALCHEMY_DATABASE_URI'] = db_url
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+database_url = os.getenv("DATABASE_URL")
+
+if database_url and database_url.startswith("postgres://"):
+    database_url = database_url.replace("postgres://", "postgresql://", 1)
+
+app.config["SQLALCHEMY_DATABASE_URI"] = database_url or "sqlite:///local.db"
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "halleluyah-secret-key")
+
 db = SQLAlchemy(app)
 
-class Branch(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(120), nullable=False, unique=True)
-    address = db.Column(db.String(255), default='')
 
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
-    role = db.Column(db.String(20), nullable=False, default='staff')
-    branch_id = db.Column(db.Integer, db.ForeignKey('branch.id'))
-    branch = db.relationship('Branch')
+    role = db.Column(db.String(20), default="staff")
+
 
 class Product(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(160), nullable=False)
-    category = db.Column(db.String(50), nullable=False)  # lens, frame, case, cloth, cleaner, accessory
-    subcategory = db.Column(db.String(80), default='')
-    lens_type = db.Column(db.String(80), default='')  # SV, Bifocal, Progressive
-    lens_material = db.Column(db.String(80), default='') # White, Photo AR, Blue Cut Photo AR
-    frame_type = db.Column(db.String(80), default='') # metal, plastic, rimless, designer
-    retail_price = db.Column(db.Numeric(12,2), default=0)
-    wholesale_price = db.Column(db.Numeric(12,2), default=0)
-    low_stock = db.Column(db.Integer, default=2)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-class Stock(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
-    branch_id = db.Column(db.Integer, db.ForeignKey('branch.id'), nullable=False)
+    name = db.Column(db.String(150), nullable=False)
+    category = db.Column(db.String(80), nullable=False)
+    subcategory = db.Column(db.String(80))
+    retail_price = db.Column(db.Float, default=0)
+    wholesale_price = db.Column(db.Float, default=0)
     quantity = db.Column(db.Integer, default=0)
-    product = db.relationship('Product')
-    branch = db.relationship('Branch')
-    __table_args__ = (db.UniqueConstraint('product_id','branch_id', name='uq_stock_product_branch'),)
+
 
 class LensPower(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
-    branch_id = db.Column(db.Integer, db.ForeignKey('branch.id'), nullable=False)
-    sph = db.Column(db.String(20), default='')
-    cyl = db.Column(db.String(20), default='')
-    axis = db.Column(db.String(10), default='')
-    add = db.Column(db.String(20), default='')
+    product_id = db.Column(db.Integer, db.ForeignKey("product.id"))
+    sph = db.Column(db.String(20))
+    cyl = db.Column(db.String(20))
+    axis = db.Column(db.String(20))
+    add_power = db.Column(db.String(20))
     quantity = db.Column(db.Integer, default=0)
-    product = db.relationship('Product')
-    branch = db.relationship('Branch')
-    __table_args__ = (db.UniqueConstraint('product_id','branch_id','sph','cyl','axis','add', name='uq_lens_power'),)
 
-class Customer(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(160), nullable=False)
-    phone = db.Column(db.String(80), default='')
-    address = db.Column(db.String(255), default='')
 
 class Sale(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    invoice_no = db.Column(db.String(40), unique=True, nullable=False)
-    branch_id = db.Column(db.Integer, db.ForeignKey('branch.id'), nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'))
-    customer_name = db.Column(db.String(160), default='Walk-in Customer')
-    subtotal = db.Column(db.Numeric(12,2), default=0)
-    discount = db.Column(db.Numeric(12,2), default=0)
-    total = db.Column(db.Numeric(12,2), default=0)
-    amount_paid = db.Column(db.Numeric(12,2), default=0)
-    balance = db.Column(db.Numeric(12,2), default=0)
-    payment_method = db.Column(db.String(50), default='Cash')
+    customer_name = db.Column(db.String(120))
+    customer_phone = db.Column(db.String(50))
+    product_name = db.Column(db.String(150))
+    quantity = db.Column(db.Integer, default=1)
+    total = db.Column(db.Float, default=0)
+    discount = db.Column(db.Float, default=0)
+    amount_paid = db.Column(db.Float, default=0)
+    balance = db.Column(db.Float, default=0)
+    payment_method = db.Column(db.String(50))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    branch = db.relationship('Branch')
-    user = db.relationship('User')
-    customer = db.relationship('Customer')
 
-class SaleItem(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    sale_id = db.Column(db.Integer, db.ForeignKey('sale.id'), nullable=False)
-    product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
-    lens_power_id = db.Column(db.Integer, db.ForeignKey('lens_power.id'))
-    qty = db.Column(db.Integer, default=1)
-    unit_price = db.Column(db.Numeric(12,2), default=0)
-    line_total = db.Column(db.Numeric(12,2), default=0)
-    product = db.relationship('Product')
-    lens_power = db.relationship('LensPower')
-    sale = db.relationship('Sale', backref='items')
 
-def money(v):
-    try: return f"₦{float(v):,.2f}"
-    except Exception: return "₦0.00"
-app.jinja_env.filters['money'] = money
+def login_required():
+    return "user_id" in session
 
-def current_user():
-    uid = session.get('user_id')
-    return User.query.get(uid) if uid else None
 
-def login_required(fn):
-    @wraps(fn)
-    def wrapper(*args, **kwargs):
-        if not current_user(): return redirect(url_for('login'))
-        return fn(*args, **kwargs)
-    return wrapper
+def manager_required():
+    return session.get("role") == "manager"
 
-def manager_required(fn):
-    @wraps(fn)
-    def wrapper(*args, **kwargs):
-        u=current_user()
-        if not u or u.role != 'manager':
-            flash('Manager permission required.', 'danger')
-            return redirect(url_for('dashboard'))
-        return fn(*args, **kwargs)
-    return wrapper
 
 @app.before_request
-def setup_db():
-    if not getattr(app, '_db_ready', False):
-        db.create_all()
-        if not Branch.query.first():
-            main=Branch(name='Main Branch', address='Sobi Junction, Gambari, Ilorin, Kwara State')
-            db.session.add(main); db.session.commit()
-        if not User.query.filter_by(username='manager').first():
-            db.session.add(User(username='manager', password_hash=generate_password_hash('manager123'), role='manager', branch_id=1))
-            db.session.commit()
-        app._db_ready=True
+def setup_database():
+    db.create_all()
 
-@app.route('/')
-def index(): return redirect(url_for('dashboard') if current_user() else url_for('login'))
+    if not User.query.filter_by(username="manager").first():
+        manager = User(
+            username="manager",
+            password_hash=generate_password_hash("manager123"),
+            role="manager"
+        )
+        db.session.add(manager)
+        db.session.commit()
 
-@app.route('/login', methods=['GET','POST'])
+
+@app.route("/")
+def home():
+    if not login_required():
+        return redirect(url_for("login"))
+
+    products = Product.query.count()
+    sales = Sale.query.count()
+    debtors = Sale.query.filter(Sale.balance > 0).count()
+
+    return render_template_string("""
+    <h1>Halleluyah Optical Laboratory POS</h1>
+    <p>Welcome, {{ session['username'] }} | Role: {{ session['role'] }}</p>
+
+    <h3>Dashboard</h3>
+    <p>Total Products: {{ products }}</p>
+    <p>Total Sales: {{ sales }}</p>
+    <p>Total Debtors: {{ debtors }}</p>
+
+    <hr>
+    <a href="/products">Products / Stock</a><br>
+    <a href="/add-product">Add Product</a><br>
+    <a href="/lens-power">Add Lens Power</a><br>
+    <a href="/pos">Make Sale</a><br>
+    <a href="/sales">Sales History</a><br>
+    <a href="/debtors">Debtors</a><br>
+    <a href="/add-staff">Add Staff</a><br>
+    <a href="/logout">Logout</a>
+    """, products=products, sales=sales, debtors=debtors)
+
+
+@app.route("/login", methods=["GET", "POST"])
 def login():
-    if request.method=='POST':
-        user=User.query.filter_by(username=request.form['username'].strip()).first()
-        if user and check_password_hash(user.password_hash, request.form['password']):
-            session['user_id']=user.id
-            return redirect(url_for('dashboard'))
-        flash('Invalid username or password.', 'danger')
-    return render_template('login.html')
+    error = ""
 
-@app.route('/logout')
-def logout(): session.clear(); return redirect(url_for('login'))
+    if request.method == "POST":
+        username = request.form.get("username")
+        password = request.form.get("password")
 
-@app.route('/dashboard')
-@login_required
-def dashboard():
-    u=current_user()
-    branch_id = u.branch_id if u.role!='manager' else request.args.get('branch_id', u.branch_id, type=int)
-    today_start=datetime.combine(date.today(), datetime.min.time())
-    sales_q=Sale.query.filter(Sale.created_at>=today_start)
-    if branch_id: sales_q=sales_q.filter_by(branch_id=branch_id)
-    sales=sales_q.all()
-    total=sum(float(s.total) for s in sales); paid=sum(float(s.amount_paid) for s in sales); balance=sum(float(s.balance) for s in sales)
-    debtors=Sale.query.filter(Sale.balance>0).order_by(Sale.created_at.desc()).limit(10).all()
-    low=[]
-    for st in Stock.query.all():
-        if st.quantity <= st.product.low_stock: low.append((st.product.name, st.branch.name, st.quantity))
-    for lp in LensPower.query.filter(LensPower.quantity<=2).limit(15).all():
-        low.append((f"{lp.product.name} SPH {lp.sph} CYL {lp.cyl} AXIS {lp.axis} ADD {lp.add}", lp.branch.name, lp.quantity))
-    return render_template('dashboard.html', u=u, total=total, paid=paid, balance=balance, debtors=debtors, low=low, branches=Branch.query.all())
+        user = User.query.filter_by(username=username).first()
 
-@app.route('/products')
-@login_required
-def products():
-    return render_template('products.html', products=Product.query.order_by(Product.category, Product.name).all(), u=current_user())
+        if user and check_password_hash(user.password_hash, password):
+            session["user_id"] = user.id
+            session["username"] = user.username
+            session["role"] = user.role
+            return redirect(url_for("home"))
 
-@app.route('/products/add', methods=['GET','POST'])
-@login_required
-@manager_required
+        error = "Invalid username or password"
+
+    return render_template_string("""
+    <h1>Halleluyah Optical Laboratory POS Login</h1>
+    <form method="post">
+        <label>Username</label><br>
+        <input name="username" required><br><br>
+
+        <label>Password</label><br>
+        <input name="password" type="password" required><br><br>
+
+        <button type="submit">Login</button>
+    </form>
+
+    <p style="color:red;">{{ error }}</p>
+
+    <p>Default Login: manager / manager123</p>
+    """, error=error)
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+
+@app.route("/add-product", methods=["GET", "POST"])
 def add_product():
-    if request.method=='POST':
-        p=Product(name=request.form['name'], category=request.form['category'], subcategory=request.form.get('subcategory',''), lens_type=request.form.get('lens_type',''), lens_material=request.form.get('lens_material',''), frame_type=request.form.get('frame_type',''), retail_price=Decimal(request.form.get('retail_price') or 0), wholesale_price=Decimal(request.form.get('wholesale_price') or 0), low_stock=int(request.form.get('low_stock') or 2))
-        db.session.add(p); db.session.commit(); flash('Product added.', 'success'); return redirect(url_for('products'))
-    return render_template('product_form.html')
+    if not login_required():
+        return redirect(url_for("login"))
 
-@app.route('/stock', methods=['GET','POST'])
-@login_required
-@manager_required
-def stock():
-    if request.method=='POST':
-        product_id=int(request.form['product_id']); branch_id=int(request.form['branch_id']); qty=int(request.form['quantity'])
-        st=Stock.query.filter_by(product_id=product_id, branch_id=branch_id).first()
-        if not st: st=Stock(product_id=product_id, branch_id=branch_id, quantity=0); db.session.add(st)
-        st.quantity += qty; db.session.commit(); flash('Stock updated.', 'success'); return redirect(url_for('stock'))
-    return render_template('stock.html', products=Product.query.all(), branches=Branch.query.all(), stocks=Stock.query.all())
+    if not manager_required():
+        return "Only manager can add products."
 
-@app.route('/lens-powers', methods=['GET','POST'])
-@login_required
-@manager_required
-def lens_powers():
-    if request.method=='POST':
-        lp=LensPower.query.filter_by(product_id=int(request.form['product_id']), branch_id=int(request.form['branch_id']), sph=request.form.get('sph',''), cyl=request.form.get('cyl',''), axis=request.form.get('axis',''), add=request.form.get('add','')).first()
-        if not lp:
-            lp=LensPower(product_id=int(request.form['product_id']), branch_id=int(request.form['branch_id']), sph=request.form.get('sph',''), cyl=request.form.get('cyl',''), axis=request.form.get('axis',''), add=request.form.get('add',''), quantity=0)
-            db.session.add(lp)
-        lp.quantity += int(request.form.get('quantity') or 0); db.session.commit(); flash('Lens power quantity updated.', 'success'); return redirect(url_for('lens_powers'))
-    return render_template('lens_powers.html', products=Product.query.filter_by(category='lens').all(), branches=Branch.query.all(), powers=LensPower.query.order_by(LensPower.product_id).all())
+    if request.method == "POST":
+        product = Product(
+            name=request.form.get("name"),
+            category=request.form.get("category"),
+            subcategory=request.form.get("subcategory"),
+            retail_price=float(request.form.get("retail_price") or 0),
+            wholesale_price=float(request.form.get("wholesale_price") or 0),
+            quantity=int(request.form.get("quantity") or 0)
+        )
+        db.session.add(product)
+        db.session.commit()
+        return redirect(url_for("products"))
 
-@app.route('/branches', methods=['GET','POST'])
-@login_required
-@manager_required
-def branches():
-    if request.method=='POST':
-        db.session.add(Branch(name=request.form['name'], address=request.form.get('address',''))); db.session.commit(); flash('Branch added.', 'success')
-    return render_template('branches.html', branches=Branch.query.all())
+    return render_template_string("""
+    <h1>Add Product / Stock</h1>
+    <form method="post">
+        <label>Product Name</label><br>
+        <input name="name" required><br><br>
 
-@app.route('/staff', methods=['GET','POST'])
-@login_required
-@manager_required
-def staff():
-    if request.method=='POST':
-        db.session.add(User(username=request.form['username'], password_hash=generate_password_hash(request.form['password']), role=request.form['role'], branch_id=int(request.form['branch_id']))); db.session.commit(); flash('Staff account created.', 'success')
-    return render_template('staff.html', users=User.query.all(), branches=Branch.query.all())
+        <label>Category</label><br>
+        <select name="category">
+            <option>Single Vision Lens</option>
+            <option>Bifocal Lens</option>
+            <option>Progressive Lens</option>
+            <option>Frame</option>
+            <option>Case</option>
+            <option>Lens Cloth</option>
+            <option>Liquid Lens Cleaner</option>
+            <option>Accessory</option>
+        </select><br><br>
 
-@app.route('/pos', methods=['GET','POST'])
-@login_required
+        <label>Subcategory</label><br>
+        <select name="subcategory">
+            <option>White Lens</option>
+            <option>Photo AR</option>
+            <option>Blue Cut Photo AR</option>
+            <option>Metal Frame</option>
+            <option>Plastic Frame</option>
+            <option>Rimless Frame</option>
+            <option>Designer Frame</option>
+            <option>Other</option>
+        </select><br><br>
+
+        <label>Retail Price ₦</label><br>
+        <input name="retail_price" type="number" step="0.01"><br><br>
+
+        <label>Wholesale Price ₦</label><br>
+        <input name="wholesale_price" type="number" step="0.01"><br><br>
+
+        <label>Quantity</label><br>
+        <input name="quantity" type="number"><br><br>
+
+        <button type="submit">Save Product</button>
+    </form>
+    <br>
+    <a href="/">Back</a>
+    """)
+
+
+@app.route("/products")
+def products():
+    if not login_required():
+        return redirect(url_for("login"))
+
+    products = Product.query.order_by(Product.id.desc()).all()
+
+    return render_template_string("""
+    <h1>Products / Stock</h1>
+    <a href="/">Back</a>
+    <table border="1" cellpadding="8">
+        <tr>
+            <th>Name</th>
+            <th>Category</th>
+            <th>Subcategory</th>
+            <th>Retail ₦</th>
+            <th>Wholesale ₦</th>
+            <th>Quantity</th>
+        </tr>
+        {% for p in products %}
+        <tr>
+            <td>{{ p.name }}</td>
+            <td>{{ p.category }}</td>
+            <td>{{ p.subcategory }}</td>
+            <td>{{ p.retail_price }}</td>
+            <td>{{ p.wholesale_price }}</td>
+            <td>{{ p.quantity }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    """, products=products)
+
+
+@app.route("/lens-power", methods=["GET", "POST"])
+def lens_power():
+    if not login_required():
+        return redirect(url_for("login"))
+
+    if not manager_required():
+        return "Only manager can add lens powers."
+
+    products = Product.query.all()
+
+    if request.method == "POST":
+        power = LensPower(
+            product_id=int(request.form.get("product_id")),
+            sph=request.form.get("sph"),
+            cyl=request.form.get("cyl"),
+            axis=request.form.get("axis"),
+            add_power=request.form.get("add_power"),
+            quantity=int(request.form.get("quantity") or 0)
+        )
+        db.session.add(power)
+        db.session.commit()
+        return redirect(url_for("lens_power"))
+
+    powers = LensPower.query.order_by(LensPower.id.desc()).all()
+
+    return render_template_string("""
+    <h1>Add Lens Power</h1>
+    <form method="post">
+        <label>Select Lens Product</label><br>
+        <select name="product_id">
+            {% for p in products %}
+            <option value="{{ p.id }}">{{ p.name }} - {{ p.subcategory }}</option>
+            {% endfor %}
+        </select><br><br>
+
+        <label>SPH</label><br>
+        <input name="sph"><br><br>
+
+        <label>CYL</label><br>
+        <input name="cyl"><br><br>
+
+        <label>AXIS</label><br>
+        <input name="axis"><br><br>
+
+        <label>ADD</label><br>
+        <input name="add_power"><br><br>
+
+        <label>Quantity</label><br>
+        <input name="quantity" type="number"><br><br>
+
+        <button type="submit">Save Lens Power</button>
+    </form>
+
+    <hr>
+    <h2>Lens Power List</h2>
+    <table border="1" cellpadding="8">
+        <tr>
+            <th>Product ID</th>
+            <th>SPH</th>
+            <th>CYL</th>
+            <th>AXIS</th>
+            <th>ADD</th>
+            <th>Quantity</th>
+        </tr>
+        {% for l in powers %}
+        <tr>
+            <td>{{ l.product_id }}</td>
+            <td>{{ l.sph }}</td>
+            <td>{{ l.cyl }}</td>
+            <td>{{ l.axis }}</td>
+            <td>{{ l.add_power }}</td>
+            <td>{{ l.quantity }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+
+    <br>
+    <a href="/">Back</a>
+    """, products=products, powers=powers)
+
+
+@app.route("/pos", methods=["GET", "POST"])
 def pos():
-    u=current_user(); branch_id=u.branch_id
-    if request.method=='POST':
-        customer_name=request.form.get('customer_name') or 'Walk-in Customer'
-        customer=Customer(name=customer_name, phone=request.form.get('phone',''), address=request.form.get('address',''))
-        db.session.add(customer); db.session.flush()
-        product_ids=request.form.getlist('product_id[]'); power_ids=request.form.getlist('lens_power_id[]'); qtys=request.form.getlist('qty[]'); prices=request.form.getlist('unit_price[]')
-        subtotal=Decimal('0')
-        sale=Sale(invoice_no='HOL-'+datetime.utcnow().strftime('%Y%m%d%H%M%S'), branch_id=branch_id, user_id=u.id, customer_id=customer.id, customer_name=customer_name, payment_method=request.form.get('payment_method','Cash'))
-        db.session.add(sale); db.session.flush()
-        for i,pid in enumerate(product_ids):
-            if not pid: continue
-            qty=int(qtys[i] or 1); price=Decimal(prices[i] or 0); line=qty*price; subtotal += line
-            power_id=int(power_ids[i]) if power_ids[i] else None
-            product=Product.query.get(int(pid))
-            if power_id:
-                lp=LensPower.query.get(power_id)
-                if not lp or lp.quantity < qty: raise ValueError('Not enough lens power stock')
-                lp.quantity -= qty
-            else:
-                st=Stock.query.filter_by(product_id=int(pid), branch_id=branch_id).first()
-                if st and st.quantity >= qty: st.quantity -= qty
-            db.session.add(SaleItem(sale_id=sale.id, product_id=int(pid), lens_power_id=power_id, qty=qty, unit_price=price, line_total=line))
-        discount=Decimal(request.form.get('discount') or 0); paid=Decimal(request.form.get('amount_paid') or 0)
-        total=max(Decimal('0'), subtotal-discount)
-        sale.subtotal=subtotal; sale.discount=discount; sale.total=total; sale.amount_paid=paid; sale.balance=max(Decimal('0'), total-paid)
-        db.session.commit(); flash(f'Sale saved. Invoice {sale.invoice_no}', 'success'); return redirect(url_for('receipt', sale_id=sale.id))
-    return render_template('pos.html', products=Product.query.order_by(Product.name).all(), powers=LensPower.query.filter_by(branch_id=branch_id).all())
+    if not login_required():
+        return redirect(url_for("login"))
 
-@app.route('/receipt/<int:sale_id>')
-@login_required
+    products = Product.query.all()
+
+    if request.method == "POST":
+        product_id = int(request.form.get("product_id"))
+        qty = int(request.form.get("quantity") or 1)
+        price_type = request.form.get("price_type")
+
+        product = Product.query.get(product_id)
+
+        price = product.wholesale_price if price_type == "wholesale" else product.retail_price
+        subtotal = price * qty
+        discount = float(request.form.get("discount") or 0)
+        total = subtotal - discount
+        amount_paid = float(request.form.get("amount_paid") or 0)
+        balance = total - amount_paid
+
+        sale = Sale(
+            customer_name=request.form.get("customer_name"),
+            customer_phone=request.form.get("customer_phone"),
+            product_name=product.name,
+            quantity=qty,
+            total=total,
+            discount=discount,
+            amount_paid=amount_paid,
+            balance=balance,
+            payment_method=request.form.get("payment_method")
+        )
+
+        product.quantity = max(0, product.quantity - qty)
+
+        db.session.add(sale)
+        db.session.commit()
+
+        return redirect(url_for("receipt", sale_id=sale.id))
+
+    return render_template_string("""
+    <h1>POS - Make Sale</h1>
+    <form method="post">
+        <label>Customer Name</label><br>
+        <input name="customer_name"><br><br>
+
+        <label>Customer Phone</label><br>
+        <input name="customer_phone"><br><br>
+
+        <label>Product</label><br>
+        <select name="product_id">
+            {% for p in products %}
+            <option value="{{ p.id }}">{{ p.name }} - ₦{{ p.retail_price }} / Stock: {{ p.quantity }}</option>
+            {% endfor %}
+        </select><br><br>
+
+        <label>Price Type</label><br>
+        <select name="price_type">
+            <option value="retail">Retail / End User</option>
+            <option value="wholesale">Wholesale</option>
+        </select><br><br>
+
+        <label>Quantity</label><br>
+        <input name="quantity" type="number" value="1"><br><br>
+
+        <label>Discount ₦</label><br>
+        <input name="discount" type="number" step="0.01" value="0"><br><br>
+
+        <label>Amount Paid ₦</label><br>
+        <input name="amount_paid" type="number" step="0.01"><br><br>
+
+        <label>Payment Method</label><br>
+        <select name="payment_method">
+            <option>Cash</option>
+            <option>Transfer</option>
+            <option>POS</option>
+            <option>Credit</option>
+        </select><br><br>
+
+        <button type="submit">Complete Sale</button>
+    </form>
+
+    <br>
+    <a href="/">Back</a>
+    """, products=products)
+
+
+@app.route("/receipt/<int:sale_id>")
 def receipt(sale_id):
-    return render_template('receipt.html', sale=Sale.query.get_or_404(sale_id))
+    if not login_required():
+        return redirect(url_for("login"))
 
-@app.route('/sales')
-@login_required
+    sale = Sale.query.get_or_404(sale_id)
+
+    return render_template_string("""
+    <h1>Halleluyah Optical Laboratory</h1>
+    <h3>Receipt / Invoice</h3>
+
+    <p><b>Date:</b> {{ sale.created_at }}</p>
+    <p><b>Customer:</b> {{ sale.customer_name }}</p>
+    <p><b>Phone:</b> {{ sale.customer_phone }}</p>
+    <p><b>Product:</b> {{ sale.product_name }}</p>
+    <p><b>Quantity:</b> {{ sale.quantity }}</p>
+    <p><b>Discount:</b> ₦{{ sale.discount }}</p>
+    <p><b>Total:</b> ₦{{ sale.total }}</p>
+    <p><b>Amount Paid:</b> ₦{{ sale.amount_paid }}</p>
+    <p><b>Balance:</b> ₦{{ sale.balance }}</p>
+    <p><b>Payment Method:</b> {{ sale.payment_method }}</p>
+
+    <button onclick="window.print()">Print Receipt</button>
+    <br><br>
+    <a href="/">Back</a>
+    """, sale=sale)
+
+
+@app.route("/sales")
 def sales():
-    u=current_user(); q=Sale.query.order_by(Sale.created_at.desc())
-    if u.role!='manager': q=q.filter_by(branch_id=u.branch_id)
-    return render_template('sales.html', sales=q.limit(300).all())
+    if not login_required():
+        return redirect(url_for("login"))
 
-@app.route('/debtors')
-@login_required
+    sales = Sale.query.order_by(Sale.id.desc()).all()
+
+    return render_template_string("""
+    <h1>Sales History</h1>
+    <a href="/">Back</a>
+    <table border="1" cellpadding="8">
+        <tr>
+            <th>Date</th>
+            <th>Customer</th>
+            <th>Phone</th>
+            <th>Product</th>
+            <th>Qty</th>
+            <th>Total ₦</th>
+            <th>Paid ₦</th>
+            <th>Balance ₦</th>
+        </tr>
+        {% for s in sales %}
+        <tr>
+            <td>{{ s.created_at }}</td>
+            <td>{{ s.customer_name }}</td>
+            <td>{{ s.customer_phone }}</td>
+            <td>{{ s.product_name }}</td>
+            <td>{{ s.quantity }}</td>
+            <td>{{ s.total }}</td>
+            <td>{{ s.amount_paid }}</td>
+            <td>{{ s.balance }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    """, sales=sales)
+
+
+@app.route("/debtors")
 def debtors():
-    u=current_user(); q=Sale.query.filter(Sale.balance>0).order_by(Sale.created_at.desc())
-    if u.role!='manager': q=q.filter_by(branch_id=u.branch_id)
-    return render_template('debtors.html', sales=q.all())
+    if not login_required():
+        return redirect(url_for("login"))
 
-@app.route('/api/powers/<int:product_id>')
-@login_required
-def api_powers(product_id):
-    u=current_user()
-    powers=LensPower.query.filter_by(product_id=product_id, branch_id=u.branch_id).filter(LensPower.quantity>0).all()
-    return jsonify([{'id':p.id,'label':f'SPH {p.sph} CYL {p.cyl} AXIS {p.axis} ADD {p.add} - Qty {p.quantity}'} for p in powers])
+    debtors = Sale.query.filter(Sale.balance > 0).order_by(Sale.id.desc()).all()
 
-@app.route('/backup')
-@login_required
-@manager_required
-def backup():
-    if app.config['SQLALCHEMY_DATABASE_URI'].startswith('sqlite'):
-        path=os.path.join(app.instance_path, 'halleluyah_pos.db')
-        return send_file(path, as_attachment=True) if os.path.exists(path) else ('No local database file found', 404)
-    return 'Render PostgreSQL backups are managed from your Render dashboard.', 200
+    return render_template_string("""
+    <h1>Debtors Record</h1>
+    <a href="/">Back</a>
+    <table border="1" cellpadding="8">
+        <tr>
+            <th>Date</th>
+            <th>Customer</th>
+            <th>Phone</th>
+            <th>Product</th>
+            <th>Total ₦</th>
+            <th>Paid ₦</th>
+            <th>Balance ₦</th>
+        </tr>
+        {% for s in debtors %}
+        <tr>
+            <td>{{ s.created_at }}</td>
+            <td>{{ s.customer_name }}</td>
+            <td>{{ s.customer_phone }}</td>
+            <td>{{ s.product_name }}</td>
+            <td>{{ s.total }}</td>
+            <td>{{ s.amount_paid }}</td>
+            <td>{{ s.balance }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    """, debtors=debtors)
 
-if __name__ == '__main__':
+
+@app.route("/add-staff", methods=["GET", "POST"])
+def add_staff():
+    if not login_required():
+        return redirect(url_for("login"))
+
+    if not manager_required():
+        return "Only manager can add staff."
+
+    if request.method == "POST":
+        user = User(
+            username=request.form.get("username"),
+            password_hash=generate_password_hash(request.form.get("password")),
+            role=request.form.get("role")
+        )
+        db.session.add(user)
+        db.session.commit()
+        return redirect(url_for("home"))
+
+    return render_template_string("""
+    <h1>Add Staff / Manager</h1>
+    <form method="post">
+        <label>Username</label><br>
+        <input name="username" required><br><br>
+
+        <label>Password</label><br>
+        <input name="password" type="password" required><br><br>
+
+        <label>Role</label><br>
+        <select name="role">
+            <option value="staff">Staff</option>
+            <option value="manager">Manager</option>
+        </select><br><br>
+
+        <button type="submit">Create User</button>
+    </form>
+
+    <br>
+    <a href="/">Back</a>
+    """)
+
+
+if __name__ == "__main__":
     app.run(debug=True)
