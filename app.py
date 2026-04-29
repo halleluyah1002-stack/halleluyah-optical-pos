@@ -113,8 +113,25 @@ td,th{padding:10px;border:1px solid #ddd;text-align:left}
 """
 
 
-def page(title, content):
+def page(title, content, **context):
     return render_template_string(f"""
+    {STYLE}
+    <div class="header">
+        <h1>Halleluyah Optical Laboratory POS</h1>
+        <p>Cloud Optical Inventory, Sales, Lens Power & Debtors System</p>
+    </div>
+    <div class="container">
+        {content}
+    </div>
+    """,
+    Branch=Branch,
+    Product=Product,
+    LensPower=LensPower,
+    Sale=Sale,
+    SaleItem=SaleItem,
+    User=User,
+    **context
+    )
     {STYLE}
     <div class="header">
         <h1>Halleluyah Optical Laboratory POS</h1>
