@@ -178,7 +178,7 @@ def home():
 
     content = """
     <div class="card">
-        <h2>Welcome, {{ session['username'] }} 👋</h2>
+        <h2>Welcome, {{ session['username'] }}</h2>
         <p>Role: <b>{{ session['role'] }}</b></p>
     </div>
 
