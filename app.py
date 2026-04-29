@@ -125,11 +125,12 @@ def page(title, content, **context):
     </div>
     """,
     Branch=Branch,
+    User=User,
     Product=Product,
     LensPower=LensPower,
     Sale=Sale,
     SaleItem=SaleItem,
-    User=User,
+    session=session,
     **context
     )
     {STYLE}
