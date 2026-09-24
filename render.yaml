@@ -1,20 +1,18 @@
 services:
   - type: web
-    name: halleluyah-pos
-    env: python
-    plan: free
-    buildCommand: "pip install --upgrade pip && pip install -r requirements.txt"
-    startCommand: "gunicorn app:app"
+    name: visioncare-eye-clinic-pos
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn run:app
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.9
-      - key: SECRET_KEY
-        generateValue: true
       - key: DATABASE_URL
         fromDatabase:
-          name: halleluyah-pos-db
+          name: visioncare-db
           property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
 
 databases:
-  - name: halleluyah-pos-db
-    plan: free
+  - name: visioncare-db
+    databaseName: visioncare
+    user: visioncare
