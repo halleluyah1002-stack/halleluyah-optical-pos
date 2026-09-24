@@ -2,6 +2,7 @@ services:
   - type: web
     name: visioncare-eye-clinic-pos
     runtime: python
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn run:app
     envVars:
@@ -16,3 +17,4 @@ databases:
   - name: visioncare-db
     databaseName: visioncare
     user: visioncare
+    plan: free
