@@ -9,9 +9,20 @@ from werkzeug.security import generate_password_hash, check_password_hash
 app = Flask(__name__)
 
 database_url = os.getenv("DATABASE_URL")
-if database_url and database_url.startswith("postgres://"):
-    database_url = database_url.replace("postgres://", "postgresql://", 1)
 
+if database_url:
+    if database_url.startswith("postgres://"):
+        database_url = database_url.replace(
+            "postgres://",
+            "postgresql+psycopg2://",
+            1
+        )
+    elif database_url.startswith("postgresql://"):
+        database_url = database_url.replace(
+            "postgresql://",
+            "postgresql+psycopg2://",
+            1
+        )
 # IMPORTANT: On Render, keep the PostgreSQL DATABASE_URL attached.
 # If DATABASE_URL is missing, Render will use temporary local SQLite and data can disappear after redeploy.
 app.config["SQLALCHEMY_DATABASE_URI"] = database_url or "sqlite:///local.db"
